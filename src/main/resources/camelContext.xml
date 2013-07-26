@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Licensed to the Apache Software Foundation (ASF) under one or more
+    contributor license agreements.  See the NOTICE file distributed with
+    this work for additional information regarding copyright ownership.
+    The ASF licenses this file to You under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+-->
+
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xmlns:jdbc="http://www.springframework.org/schema/jdbc"
+
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd
+       http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc-3.0.xsd">
+
+    <!-- REST -->
+    <bean id="RestletComponent" class="org.restlet.Component"/>
+    <bean id="RestletComponentService" class="org.apache.camel.component.restlet.RestletComponent">
+        <constructor-arg ref="RestletComponent"/>
+    </bean>
+
+    <!-- JTA CACHE -->
+    <bean id="userTransaction" class="com.atomikos.icatch.jta.UserTransactionImp"/>
+    <bean id="userTransactionManager" class="com.atomikos.icatch.jta.UserTransactionManager"/>
+    <bean id="transactionManager" class="org.springframework.transaction.jta.JtaTransactionManager">
+        <constructor-arg ref="userTransaction"/>
+        <constructor-arg ref="userTransactionManager"/>
+    </bean>
+
+    <bean id="atomikosJtaConfiguration" class="com.ofbizian.infinispan.AtomikosJtaConfiguration">
+        <constructor-arg ref="transactionManager"/>
+    </bean>
+
+    <bean id="cacheContainer" factory-bean="atomikosJtaConfiguration" factory-method="basicCacheContainer"/>
+    <bean id="dataSource" factory-bean="atomikosJtaConfiguration" factory-method="atomikosDataSourceBean"/>
+
+    <bean id="damn" class="java.lang.IllegalArgumentException">
+        <constructor-arg index="0" value="Damn"/>
+    </bean>
+
+    <camelContext xmlns="http://camel.apache.org/schema/spring">
+
+        <route>
+            <from uri="restlet:/persons?restletMethod=POST"/>
+            <transacted/>
+
+            <!-- PERSIST TO DB -->
+            <to uri="sql:insert into person(firstName, lastName) values(:#firstName,:#lastName)?dataSource=#dataSource"/>
+
+            <!-- DAMN EXCEPTION THROWER-->
+            <filter>
+                <simple>${in.header.lastName} == "damn"</simple>
+                <throwException ref="damn"/>
+            </filter>
+
+            <!-- PUT TO CACHE -->
+            <to uri="sql:select id from person WHERE id = (select max(id) from person)?dataSource=#dataSource"/>
+            <setHeader headerName="personId">
+                <simple>${body[0][ID]}</simple>
+            </setHeader>
+            <setHeader headerName="CamelInfinispanKey">
+                <simple>${headerAs(personId, String)}</simple>
+            </setHeader>
+            <setHeader headerName="CamelInfinispanValue">
+                <simple>${in.header.firstName}</simple>
+            </setHeader>
+            <setHeader headerName="CamelInfinispanOperation">
+                <simple>CamelInfinispanOperationPut</simple>
+            </setHeader>
+            <to uri="infinispan://localhost?cacheContainer=#cacheContainer"/>
+        </route>
+
+        <route>
+            <from uri="restlet:/persons/cache/{userId}?restletMethods=GET"/>
+            <setHeader headerName="CamelInfinispanKey">
+                <simple>${in.header.userId}</simple>
+            </setHeader>
+            <setHeader headerName="CamelInfinispanOperation">
+                <simple>CamelInfinispanOperationGet</simple>
+            </setHeader>
+            <to uri="infinispan://localhost?cacheContainer=#cacheContainer"/>
+            <setBody>
+                <simple>${in.header.CamelInfinispanOperationResult}</simple>
+            </setBody>
+        </route>
+
+        <route>
+            <from uri="restlet:/persons/db/{userId}?restletMethods=GET"/>
+            <to uri="sql:select * from person where id=:#userId?dataSource=#dataSource"/>
+        </route>
+
+        <route>
+            <from uri="restlet:/persons/db?restletMethods=GET"/>
+            <to uri="sql:select * from person?dataSource=#dataSource"/>
+        </route>
+
+    </camelContext>
+</beans>
