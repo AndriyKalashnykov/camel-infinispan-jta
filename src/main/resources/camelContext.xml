@@ -53,7 +53,7 @@
 
     <camelContext xmlns="http://camel.apache.org/schema/spring">
 
-        <route>
+        <route id="createRoute">
             <from uri="restlet:/persons?restletMethod=POST"/>
             <transacted/>
 

@@ -3,4 +3,6 @@ target
 *.iml
 *.ipr
 *.iws
+*.log
+*.epoch
 

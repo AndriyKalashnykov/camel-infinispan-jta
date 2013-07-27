@@ -44,7 +44,11 @@ public class AtomikosJtaConfiguration {
     }
 
     public BasicCacheContainer basicCacheContainer() throws Throwable {
-        GlobalConfiguration glob = new GlobalConfigurationBuilder().nonClusteredDefault().build();
+        GlobalConfiguration glob = new GlobalConfigurationBuilder()
+                .nonClusteredDefault()
+                .globalJmxStatistics().allowDuplicateDomains(true)
+                .build();
+
         Configuration loc = new ConfigurationBuilder()
                 .transaction().transactionMode(TransactionMode.TRANSACTIONAL)
                 .transactionManagerLookup(new TransactionManagerLookup() {
@@ -58,28 +62,42 @@ public class AtomikosJtaConfiguration {
     }
 
     public AtomikosDataSourceBean atomikosDataSourceBean() throws SQLException {
-        EmbeddedXADataSource ds = new EmbeddedXADataSource();
-        ds.setCreateDatabase("create");
-        ds.setDatabaseName("target/testdb");
-        ds.setUser("");
-        ds.setPassword("");
+        EmbeddedXADataSource dataSource = initXADatasource();
+
+        AtomikosDataSourceBean xaDataSource = new AtomikosDataSourceBean();
+        xaDataSource.setXaDataSource(dataSource);
+        xaDataSource.setUniqueResourceName("xaDerby:" + System.currentTimeMillis());
+        return xaDataSource;
+    }
+
+    private EmbeddedXADataSource initXADatasource() throws SQLException {
+        EmbeddedXADataSource dataSource = new EmbeddedXADataSource();
+        dataSource.setCreateDatabase("create");
+        dataSource.setDatabaseName("target/testdb");
+        dataSource.setUser("");
+        dataSource.setPassword("");
 
         Connection connection = null;
         try {
-            connection = ds.getConnection();
-            ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
-            populator.addScript(new DefaultResourceLoader().getResource("sql/init.sql"));
-            populator.populate(connection);
-
+            connection = dataSource.getConnection();
+            executeScript(connection, "sql/drop.sql");
+            executeScript(connection, "sql/init.sql");
         } finally {
             if (connection != null) {
                 connection.close();
             }
         }
+        return dataSource;
+    }
 
-        AtomikosDataSourceBean xaDataSource = new AtomikosDataSourceBean();
-        xaDataSource.setXaDataSource(ds);
-        xaDataSource.setUniqueResourceName("xaderby");
-        return xaDataSource;
+    private void executeScript(Connection connection, String location) {
+        ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
+        DefaultResourceLoader resourceLoader = new DefaultResourceLoader();
+        populator.addScript(resourceLoader.getResource(location));
+        try {
+            populator.populate(connection);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
