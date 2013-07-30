@@ -1,7 +1,9 @@
-Camel Infinispan Transactional example
+# Camel Infinispan Transactional example
 =======================================
 
-Start the app
+First get Camel Infinispan component: git clone https://github.com/bibryam/camel-infinispan.git
+
+Start the example app
 mvn clean install jetty:run
 
 Create a person
